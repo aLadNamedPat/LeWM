@@ -34,37 +34,41 @@ uv pip install -e .
 uv pip install -e ".[dev]"
 ```
 
-## RunPod Deployment
+## RunPod Deployment (No Docker Required!)
 
-### 1. Build and Push Docker Image
+### Method 1: Direct Setup (Recommended - Simplest!)
 
+1. **Push code to GitHub** (see instructions below)
+
+2. **Launch a RunPod Pod**:
+   - Choose any PyTorch template (e.g., "RunPod PyTorch")
+   - Add a network volume for persistent storage (optional but recommended)
+
+3. **Inside the RunPod terminal**:
 ```bash
-# Set your Docker Hub username
-export DOCKER_USERNAME="your-dockerhub-username"
+# Quick setup (one command!)
+curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/le-world-model/main/scripts/runpod_direct_setup.sh | bash
 
-# Build and push
-chmod +x scripts/build_and_push.sh
-./scripts/build_and_push.sh
+# Or manual setup:
+cd /workspace
+git clone https://github.com/YOUR_USERNAME/le-world-model.git
+cd le-world-model
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+uv pip install --system -e .
+python train.py
 ```
 
-### 2. Create RunPod Template
+### Method 2: Docker (Optional - For Advanced Users)
 
-1. Go to [RunPod Templates](https://www.runpod.io/console/templates)
-2. Create new template with:
-   - **Container Image**: `your-dockerhub-username/le-world-model:latest`
-   - **Docker Command**: Leave empty (uses default from Dockerfile)
-   - **Container Disk**: 20GB
-   - **Volume Mount Path**: `/runpod-volume`
-
-### 3. Launch Pod
+Only use this if you need custom Docker configurations.
 
 ```bash
-# On RunPod pod terminal
-bash /workspace/le-world-model/scripts/runpod_setup.sh
+# Build and push to Docker Hub
+export DOCKER_USERNAME="your-dockerhub-username"
+./scripts/build_and_push.sh
 
-# Start training
-cd /workspace/le-world-model
-python train.py
+# Then create RunPod template with your Docker image
 ```
 
 ### 4. Environment Variables (Set in RunPod)

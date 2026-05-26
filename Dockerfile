@@ -19,14 +19,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install UV (blazingly fast Python package installer)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:${PATH}"
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    mv /root/.local/bin/uv /usr/local/bin/uv && \
+    mv /root/.local/bin/uvx /usr/local/bin/uvx
 
 # Set working directory
 WORKDIR /workspace/le-world-model
 
 # Copy project files
 COPY pyproject.toml ./
+COPY README.md ./
 COPY model/ ./model/
 COPY configs/ ./configs/
 

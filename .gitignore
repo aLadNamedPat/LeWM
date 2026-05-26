@@ -68,6 +68,17 @@ logs/
 runs/
 results/
 
+# Dataset archives (compressed files)
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.zst
+*.zst
+*.zip
+*.7z
+*.rar
+Lewm Two Rooms.tar.zst
+
 # Environment variables
 .env
 .env.local
@@ -87,3 +98,4 @@ htmlcov/
 *.tmp
 tmp/
 temp/
+
