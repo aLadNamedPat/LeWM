@@ -21,12 +21,12 @@ fi
 echo "📦 Installing Hugging Face Hub..."
 pip install -q huggingface-hub[cli]
 
-# Download dataset using huggingface-cli
+# Download dataset using hf CLI
 echo "⬇️  Downloading from: $HF_DATASET"
 cd "$DATA_DIR"
 
 # Download all files from the dataset
-huggingface-cli download "$HF_DATASET" --repo-type dataset --local-dir .
+hf download "$HF_DATASET" --repo-type dataset --local-dir .
 
 # Check if tar.zst file exists and extract
 if ls *.tar.zst 1> /dev/null 2>&1; then
