@@ -165,7 +165,7 @@ def main(cfg: DictConfig):
             h5_path=h5_path,
             batch_size=cfg.training.batch_size,
             sequence_length=5,  # N frames
-            num_workers=4,
+            num_workers=0,  # HDF5 doesn't support multi-process loading
             shuffle=True,
         )
     else:
