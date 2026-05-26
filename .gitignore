@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# UV specific
+.uv/
+uv.lock
+
+# PyTorch & ML
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.pkl
+*.pickle
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Hydra
+outputs/
+multirun/
+.hydra/
+
+# Weights & Biases
+wandb/
+
+# Data & Checkpoints
+data/
+datasets/
+checkpoints/
+logs/
+runs/
+results/
+
+# Environment variables
+.env
+.env.local
+.envrc
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+temp/

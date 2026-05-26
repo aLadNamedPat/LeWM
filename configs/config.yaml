@@ -1,0 +1,16 @@
+defaults:
+  - model: default
+  - loss: default
+  - training: default
+  - _self_
+
+experiment_name: lwm_experiment
+checkpoint_dir: checkpoints
+log_dir: logs
+
+hydra:
+  run:
+    dir: outputs/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: outputs/${experiment_name}
+    subdir: ${hydra.job.num}

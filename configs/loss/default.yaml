@@ -1,0 +1,2 @@
+lambda_sigreg: 1.0  # Weight for SIGReg regularization
+num_projections: 100  # Number of random projections M
