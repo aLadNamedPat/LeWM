@@ -51,15 +51,9 @@ if [ ! -z "$WANDB_API_KEY" ]; then
     wandb login "$WANDB_API_KEY"
 fi
 
-# Download dataset if URL is provided
-if [ ! -z "$DATASET_URL" ]; then
-    echo "📦 Downloading dataset..."
-    bash scripts/download_data.sh
-else
-    echo "⚠️  No DATASET_URL set. Skipping dataset download."
-    echo "   Set DATASET_URL environment variable to download automatically."
-    echo "   Or manually upload data to /workspace/data/ or /runpod-volume/data/"
-fi
+# Download dataset from Hugging Face
+echo "📦 Downloading dataset from Hugging Face..."
+bash scripts/download_data.sh || echo "⚠️  Dataset download failed. You can download manually later."
 
 # Check GPU
 echo "📊 GPU Information:"
