@@ -69,8 +69,22 @@ def load_checkpoint(model, optimizer, checkpoint_path, device):
     """Load training checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-    # Load model state dict with strict=False to allow missing keys (e.g., decoder)
-    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+    # Load model state dict, filtering out size mismatches
+    model_state = checkpoint['model_state_dict']
+    current_model_state = model.state_dict()
+
+    # Filter out size mismatches and missing keys
+    filtered_state = {}
+    for k, v in model_state.items():
+        if k in current_model_state:
+            if v.shape == current_model_state[k].shape:
+                filtered_state[k] = v
+            else:
+                print(f"Skipping {k} due to shape mismatch: {v.shape} vs {current_model_state[k].shape}")
+        else:
+            print(f"Skipping {k} - not in current model")
+
+    model.load_state_dict(filtered_state, strict=False)
 
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     return checkpoint['epoch'], checkpoint['step'], checkpoint['loss']
