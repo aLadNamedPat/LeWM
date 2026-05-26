@@ -86,7 +86,14 @@ def load_checkpoint(model, optimizer, checkpoint_path, device):
 
     model.load_state_dict(filtered_state, strict=False)
 
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # Try to load optimizer state, but don't fail if incompatible
+    try:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print("Loaded optimizer state from checkpoint")
+    except (ValueError, KeyError) as e:
+        print(f"Could not load optimizer state (model architecture changed): {e}")
+        print("Optimizer will restart with fresh state")
+
     return checkpoint['epoch'], checkpoint['step'], checkpoint['loss']
 
 
