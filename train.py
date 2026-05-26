@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from model.LWM import LWM
 from model.loss import LeWMLoss
+from model.dataset import create_dataloader
 
 
 def setup_distributed():
@@ -155,35 +156,43 @@ def main(cfg: DictConfig):
         T_max=cfg.training.num_epochs,
     )
 
-    # TODO: Create your dataloader here
-    # For now, this is a placeholder
-    # train_loader = create_dataloader(cfg)
+    # Create dataloader for Two Rooms dataset
+    h5_path = "/workspace/data/tworoom.h5"
+    if os.path.exists(h5_path):
+        if is_main_process:
+            print(f"Loading dataset from: {h5_path}")
+        train_loader = create_dataloader(
+            h5_path=h5_path,
+            batch_size=cfg.training.batch_size,
+            sequence_length=5,  # N frames
+            num_workers=4,
+            shuffle=True,
+        )
+    else:
+        # Fallback to dummy data if dataset not found
+        if is_main_process:
+            print(f"Warning: Dataset not found at {h5_path}, using dummy data")
 
-    # Example placeholder dataloader
-    # You'll need to replace this with your actual dataset
-    class DummyDataset(torch.utils.data.Dataset):
-        def __len__(self):
-            return 1000
+        class DummyDataset(torch.utils.data.Dataset):
+            def __len__(self):
+                return 1000
 
-        def __getitem__(self, idx):
-            # Return dummy data: (observations, actions)
-            # observations: (N+1, C, H, W) - sequence of N+1 frames
-            # actions: (N, action_dim) - N actions
-            N = 5  # sequence length
-            observations = torch.randn(N+1, 3, 224, 224)
-            actions = torch.randn(N, cfg.model.predictor.action_dim)
-            return observations, actions
+            def __getitem__(self, idx):
+                N = 5
+                observations = torch.randn(N+1, 3, 224, 224)
+                actions = torch.randn(N, cfg.model.predictor.action_dim)
+                return observations, actions
 
-    train_dataset = DummyDataset()
-    sampler = DistributedSampler(train_dataset) if is_distributed else None
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.training.batch_size,
-        shuffle=(sampler is None),
-        sampler=sampler,
-        num_workers=4,
-        pin_memory=True,
-    )
+        train_dataset = DummyDataset()
+        sampler = DistributedSampler(train_dataset) if is_distributed else None
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=cfg.training.batch_size,
+            shuffle=(sampler is None),
+            sampler=sampler,
+            num_workers=4,
+            pin_memory=True,
+        )
 
     # Resume from checkpoint if exists
     checkpoint_dir = Path(cfg.checkpoint_dir)
