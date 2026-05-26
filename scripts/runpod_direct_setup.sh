@@ -17,7 +17,7 @@ fi
 if [ ! -d "/workspace/le-world-model" ]; then
     echo "📥 Cloning repository..."
     cd /workspace
-    git clone https://github.com/YOUR_USERNAME/le-world-model.git
+    git clone https://github.com/aLadNamedPat/LeWM.git le-world-model
     cd le-world-model
 else
     echo "✅ Repository already cloned"
@@ -49,6 +49,16 @@ uv pip install --system -e .
 if [ ! -z "$WANDB_API_KEY" ]; then
     echo "🔐 Logging in to Weights & Biases..."
     wandb login "$WANDB_API_KEY"
+fi
+
+# Download dataset if URL is provided
+if [ ! -z "$DATASET_URL" ]; then
+    echo "📦 Downloading dataset..."
+    bash scripts/download_data.sh
+else
+    echo "⚠️  No DATASET_URL set. Skipping dataset download."
+    echo "   Set DATASET_URL environment variable to download automatically."
+    echo "   Or manually upload data to /workspace/data/ or /runpod-volume/data/"
 fi
 
 # Check GPU
