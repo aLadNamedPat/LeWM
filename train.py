@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
+from torch.cuda.amp import autocast, GradScaler
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import wandb
@@ -38,7 +39,7 @@ def cleanup_distributed(is_distributed):
         dist.destroy_process_group()
 
 
-def save_checkpoint(model, optimizer, epoch, step, loss, checkpoint_dir, is_distributed=False):
+def save_checkpoint(model, optimizer, epoch, step, loss, checkpoint_dir, is_distributed=False, scaler=None):
     """Save training checkpoint."""
     checkpoint_dir = Path(checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -54,6 +55,9 @@ def save_checkpoint(model, optimizer, epoch, step, loss, checkpoint_dir, is_dist
         'loss': loss,
     }
 
+    if scaler is not None:
+        checkpoint['scaler_state_dict'] = scaler.state_dict()
+
     # Save latest checkpoint
     latest_path = checkpoint_dir / 'checkpoint_latest.pt'
     torch.save(checkpoint, latest_path)
@@ -66,7 +70,7 @@ def save_checkpoint(model, optimizer, epoch, step, loss, checkpoint_dir, is_dist
     return latest_path
 
 
-def load_checkpoint(model, optimizer, checkpoint_path, device):
+def load_checkpoint(model, optimizer, checkpoint_path, device, scaler=None):
     """Load training checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
@@ -94,6 +98,14 @@ def load_checkpoint(model, optimizer, checkpoint_path, device):
     except (ValueError, KeyError) as e:
         print(f"Could not load optimizer state (model architecture changed): {e}")
         print("Optimizer will restart with fresh state")
+
+    # Load scaler state if available
+    if scaler is not None and 'scaler_state_dict' in checkpoint:
+        try:
+            scaler.load_state_dict(checkpoint['scaler_state_dict'])
+            print("Loaded gradient scaler state from checkpoint")
+        except Exception as e:
+            print(f"Could not load scaler state: {e}")
 
     return checkpoint['epoch'], checkpoint['step'], checkpoint['loss']
 
@@ -130,6 +142,11 @@ def main(cfg: DictConfig):
     model = LWM.from_hydra_config(cfg)
     model = model.to(device)
 
+    # Compile model for faster training (RTX 4090 optimization)
+    if is_main_process:
+        print("Compiling model with torch.compile()...")
+    model = torch.compile(model, mode="reduce-overhead")
+
     # Wrap with DDP if distributed
     if is_distributed:
         model = DDP(model, device_ids=[local_rank])
@@ -155,6 +172,9 @@ def main(cfg: DictConfig):
         optimizer,
         T_max=cfg.training.num_epochs,
     )
+
+    # Create gradient scaler for mixed precision training
+    scaler = GradScaler()
 
     # Create dataloader for Two Rooms dataset
     h5_path = "/workspace/data/tworoom.h5"
@@ -207,7 +227,8 @@ def main(cfg: DictConfig):
             model.module if is_distributed else model,
             optimizer,
             latest_checkpoint,
-            device
+            device,
+            scaler=scaler
         )
 
     # Training loop
@@ -232,38 +253,42 @@ def main(cfg: DictConfig):
             B, N_plus_1, C, H, W = observations.shape
             N = N_plus_1 - 1
 
-            # Encode all observations
-            obs_flat = observations.view(B * N_plus_1, C, H, W)
-            z_flat = model.module.encode(obs_flat) if is_distributed else model.encode(obs_flat)
-            z_sequence = z_flat.view(B, N_plus_1, -1)  # (B, N+1, z_dim)
+            # Mixed precision forward pass
+            with autocast(dtype=torch.bfloat16):
+                # Encode all observations
+                obs_flat = observations.view(B * N_plus_1, C, H, W)
+                z_flat = model.module.encode(obs_flat) if is_distributed else model.encode(obs_flat)
+                z_sequence = z_flat.view(B, N_plus_1, -1)  # (B, N+1, z_dim)
 
-            # Split into history and targets
-            z_history = z_sequence[:, :-1, :]  # (B, N, z_dim)
-            z_targets = z_sequence[:, 1:, :]   # (B, N, z_dim)
+                # Split into history and targets
+                z_history = z_sequence[:, :-1, :]  # (B, N, z_dim)
+                z_targets = z_sequence[:, 1:, :]   # (B, N, z_dim)
 
-            # Predict next states
-            z_pred = model.module.predict(z_history, actions) if is_distributed \
-                     else model.predict(z_history, actions)  # (B, N, z_dim)
+                # Predict next states
+                z_pred = model.module.predict(z_history, actions) if is_distributed \
+                         else model.predict(z_history, actions)  # (B, N, z_dim)
 
-            # Compute loss
-            # Reshape for loss: (N, B, z_dim)
-            Z_history_loss = z_history.transpose(0, 1)
+                # Compute loss
+                # Reshape for loss: (N, B, z_dim)
+                Z_history_loss = z_history.transpose(0, 1)
 
-            total_loss, decoder_loss, loss_dict = loss_fn(
-                z_pred, z_targets, Z_history_loss
-            )
+                total_loss, decoder_loss, loss_dict = loss_fn(
+                    z_pred, z_targets, Z_history_loss
+                )
 
-            # Backward pass
+            # Backward pass with gradient scaling
             optimizer.zero_grad()
-            total_loss.backward()
+            scaler.scale(total_loss).backward()
 
-            # Gradient clipping
+            # Gradient clipping (unscale first)
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(),
                 cfg.training.gradient_clip
             )
 
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
 
             # Update metrics
             epoch_loss += total_loss.item()
@@ -304,7 +329,8 @@ def main(cfg: DictConfig):
                     global_step,
                     total_loss.item(),
                     checkpoint_dir,
-                    is_distributed
+                    is_distributed,
+                    scaler=scaler
                 )
 
         # End of epoch
@@ -351,7 +377,8 @@ def main(cfg: DictConfig):
                 global_step,
                 avg_loss,
                 checkpoint_dir,
-                is_distributed
+                is_distributed,
+                scaler=scaler
             )
 
     if is_main_process:
