@@ -38,11 +38,29 @@ class TwoRoomsDataset(Dataset):
             self.keys = list(f.keys())
             print(f"HDF5 file contains keys: {self.keys}")
 
-            # Typically structured as episodes
-            if 'observations' in f:
+            # Check for Two Rooms specific structure (flat with ep_idx/ep_offset)
+            if 'pixels' in f and 'ep_idx' in f and 'ep_offset' in f:
+                # Two Rooms dataset structure
+                ep_indices = f['ep_idx'][:]
+                ep_offsets = f['ep_offset'][:]
+                ep_lengths = f['ep_len'][:]
+
+                # Build episode information
+                self.num_episodes = len(ep_offsets)
+                if max_episodes:
+                    self.num_episodes = min(self.num_episodes, max_episodes)
+
+                self.episode_offsets = ep_offsets[:self.num_episodes]
+                self.episode_lengths = ep_lengths[:self.num_episodes]
+                self.use_flat_structure = True
+
+            # Fallback to standard structures
+            elif 'observations' in f:
                 # Flat structure
                 self.num_episodes = 1
                 self.episode_lengths = [len(f['observations'])]
+                self.episode_offsets = [0]
+                self.use_flat_structure = True
             else:
                 # Episode structure (e.g., 'episode_0', 'episode_1', ...)
                 self.episode_keys = [k for k in self.keys if k.startswith('episode') or k.startswith('demo')]
@@ -55,6 +73,7 @@ class TwoRoomsDataset(Dataset):
                 for ep_key in self.episode_keys:
                     ep_len = len(f[ep_key]['observations'])
                     self.episode_lengths.append(ep_len)
+                self.use_flat_structure = False
 
         # Build index: list of (episode_idx, start_frame) tuples
         self.index = []
@@ -78,22 +97,33 @@ class TwoRoomsDataset(Dataset):
         ep_idx, start_idx = self.index[idx]
 
         with h5py.File(self.h5_path, 'r') as f:
-            if self.num_episodes == 1:
-                # Flat structure
-                obs_data = f['observations']
-                action_data = f['actions']
+            if self.use_flat_structure:
+                # Two Rooms or flat structure
+                if 'pixels' in f:
+                    # Two Rooms dataset - use episode offsets
+                    ep_offset = self.episode_offsets[ep_idx]
+                    global_start = ep_offset + start_idx
+                    global_end = global_start + self.sequence_length + 1
+
+                    observations = f['pixels'][global_start:global_end]
+                    actions = f['action'][global_start:global_start + self.sequence_length]
+                else:
+                    # Standard flat structure
+                    obs_data = f['observations']
+                    action_data = f['actions']
+                    end_idx = start_idx + self.sequence_length + 1
+                    observations = obs_data[start_idx:end_idx]
+                    actions = action_data[start_idx:start_idx + self.sequence_length]
             else:
                 # Episode structure
                 ep_key = self.episode_keys[ep_idx]
                 obs_data = f[ep_key]['observations']
                 action_data = f[ep_key]['actions']
 
-            # Load sequence of observations (N+1 frames)
-            end_idx = start_idx + self.sequence_length + 1
-            observations = obs_data[start_idx:end_idx]  # (N+1, H, W, C) or (N+1, C, H, W)
-
-            # Load corresponding actions (N actions)
-            actions = action_data[start_idx:start_idx + self.sequence_length]
+                # Load sequence of observations (N+1 frames)
+                end_idx = start_idx + self.sequence_length + 1
+                observations = obs_data[start_idx:end_idx]
+                actions = action_data[start_idx:start_idx + self.sequence_length]
 
         # Convert to torch tensors
         observations = torch.from_numpy(np.array(observations)).float()
