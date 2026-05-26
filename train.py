@@ -67,8 +67,11 @@ def save_checkpoint(model, optimizer, epoch, step, loss, checkpoint_dir, is_dist
 
 def load_checkpoint(model, optimizer, checkpoint_path, device):
     """Load training checkpoint."""
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    # Load model state dict with strict=False to allow missing keys (e.g., decoder)
+    model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     return checkpoint['epoch'], checkpoint['step'], checkpoint['loss']
 
