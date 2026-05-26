@@ -19,4 +19,15 @@ predictor:
   dropout: 0.1  # 10% dropout
   max_seq_len: 128
 
+decoder:
+  cls_dim: 192  # Must match encoder.z_dim
+  hidden_dim: 256
+  n_layers: 4
+  n_heads: 8
+  mlp_ratio: 4.0
+  dropout: 0.0
+  img_size: 224
+  patch_size: 16  # Decoder uses 16x16 patches
+  out_channels: 3
+
 device: cuda
