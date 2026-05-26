@@ -1,6 +1,7 @@
 """Dataset loader for Le World Model Two Rooms dataset."""
 
 import h5py
+import hdf5plugin  # Required for compressed HDF5 datasets
 import torch
 from torch.utils.data import Dataset
 import numpy as np
