@@ -238,14 +238,23 @@ def main(cfg: DictConfig):
 
             # Log to W&B (main process only)
             if is_main_process and global_step % 10 == 0:
-                wandb.log({
+                log_dict = {
                     "train/loss": total_loss.item(),
                     "train/loss_prediction": loss_dict['prediction'],
                     "train/loss_sigreg": loss_dict['sigreg'],
                     "train/lr": optimizer.param_groups[0]['lr'],
                     "train/epoch": epoch,
                     "train/step": global_step,
-                })
+                }
+
+                # Log embedding statistics
+                with torch.no_grad():
+                    z_flat = z_history.reshape(-1, z_history.shape[-1])
+                    log_dict["embeddings/mean"] = z_flat.mean().item()
+                    log_dict["embeddings/std"] = z_flat.std().item()
+                    log_dict["embeddings/norm"] = torch.norm(z_flat, dim=1).mean().item()
+
+                wandb.log(log_dict)
 
                 pbar.set_postfix({
                     'loss': f"{total_loss.item():.4f}",
@@ -271,6 +280,35 @@ def main(cfg: DictConfig):
         if is_main_process:
             avg_loss = epoch_loss / len(train_loader)
             print(f"Epoch {epoch+1} completed. Avg Loss: {avg_loss:.4f}")
+
+            # Visualize reconstructions every epoch (if decoder exists)
+            if hasattr(model, 'decoder') and model.decoder is not None:
+                model.eval()
+                with torch.no_grad():
+                    # Get a batch for visualization
+                    vis_obs, vis_actions = next(iter(train_loader))
+                    vis_obs = vis_obs.to(device)[:4]  # Take first 4 samples
+
+                    # Get first frame from sequence
+                    vis_frame = vis_obs[:, 0]  # (4, C, H, W)
+
+                    # Encode
+                    z_vis = model.module.encode(vis_frame) if is_distributed else model.encode(vis_frame)
+
+                    # Decode (with gradients detached)
+                    recon = model.module.decode(z_vis, detach=True) if is_distributed else model.decode(z_vis, detach=True)
+
+                    # Normalize to [0, 1] for visualization
+                    vis_frame_norm = (vis_frame - vis_frame.min()) / (vis_frame.max() - vis_frame.min() + 1e-8)
+                    recon_norm = (recon - recon.min()) / (recon.max() - recon.min() + 1e-8)
+
+                    # Log to W&B
+                    wandb.log({
+                        "visualizations/original": [wandb.Image(img) for img in vis_frame_norm.cpu()],
+                        "visualizations/reconstructed": [wandb.Image(img) for img in recon_norm.cpu()],
+                        "epoch": epoch + 1,
+                    })
+                model.train()
 
             # Save epoch checkpoint
             save_checkpoint(
