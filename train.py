@@ -115,6 +115,7 @@ def main(cfg: DictConfig):
         num_projections=cfg.loss.num_projections,
         embedding_dim=cfg.model.encoder.z_dim,
     )
+    loss_fn = loss_fn.to(device)  # Move loss function to same device as model
 
     # Create optimizer
     optimizer = torch.optim.AdamW(
