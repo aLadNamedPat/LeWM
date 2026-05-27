@@ -3,6 +3,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
@@ -281,6 +282,23 @@ def main(cfg: DictConfig):
                 total_loss, decoder_loss, loss_dict = loss_fn(
                     z_pred, z_targets, Z_history_loss
                 )
+
+                # Train decoder separately (if it exists)
+                if hasattr(model, 'decoder') and model.decoder is not None:
+                    # Get CLS token from first observation (detached to prevent encoder gradients)
+                    first_obs = observations[:, 0]  # (B, C, H, W)
+                    with torch.no_grad():
+                        z_first = model.module.encode(first_obs) if is_distributed else model.encode(first_obs)
+
+                    # Decode (gradients flow to decoder but not encoder due to detach above)
+                    reconstructed = model.module.decoder(z_first, detach=False) if is_distributed else model.decoder(z_first, detach=False)
+
+                    # Reconstruction loss
+                    decoder_loss = F.mse_loss(reconstructed, first_obs)
+
+                    # Add to total loss (will train decoder parameters)
+                    total_loss = total_loss + 0.1 * decoder_loss
+                    loss_dict['decoder'] = decoder_loss.item()
 
             # Backward pass with gradient scaling
             optimizer.zero_grad()
