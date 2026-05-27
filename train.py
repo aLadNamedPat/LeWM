@@ -143,9 +143,12 @@ def main(cfg: DictConfig):
     model = model.to(device)
 
     # Compile model for faster training (RTX 4090 optimization)
-    if is_main_process:
-        print("Compiling model with torch.compile()...")
-    model = torch.compile(model, mode="reduce-overhead")
+    if cfg.training.use_compile:
+        if is_main_process:
+            print("Compiling model with torch.compile()...")
+        model = torch.compile(model, mode="reduce-overhead")
+    elif is_main_process:
+        print("torch.compile() disabled (use_compile=false)")
 
     # Wrap with DDP if distributed
     if is_distributed:
