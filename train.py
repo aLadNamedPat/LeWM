@@ -181,12 +181,15 @@ def main(cfg: DictConfig):
     if os.path.exists(h5_path):
         if is_main_process:
             print(f"Loading dataset from: {h5_path}")
+            if cfg.training.max_episodes is not None:
+                print(f"Using subset: {cfg.training.max_episodes} episodes for faster iteration")
         train_loader = create_dataloader(
             h5_path=h5_path,
             batch_size=cfg.training.batch_size,
             sequence_length=5,  # N frames
             num_workers=0,  # HDF5 doesn't support multi-process loading
             shuffle=True,
+            max_episodes=cfg.training.max_episodes,
         )
     else:
         # Fallback to dummy data if dataset not found
