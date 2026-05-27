@@ -1,4 +1,4 @@
-batch_size: 128∂∂
+batch_size: 128
 learning_rate: 1e-4
 num_epochs: 100
 warmup_steps: 1000
