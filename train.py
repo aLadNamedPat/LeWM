@@ -19,6 +19,15 @@ from model.loss import LeWMLoss
 from model.dataset import create_dataloader
 
 
+# NVTX ranges are no-ops when not profiling, so leaving them in is free.
+# Use `nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop`
+# together with NSYS_PROFILE_START_STEP / NSYS_PROFILE_STOP_STEP to capture
+# only steady-state steps (skipping dataloader warmup + torch.compile JIT).
+_NSYS_START_STEP = int(os.environ.get("NSYS_PROFILE_START_STEP", "-1"))
+_NSYS_STOP_STEP = int(os.environ.get("NSYS_PROFILE_STOP_STEP", "-1"))
+_nvtx_range = torch.cuda.nvtx.range
+
+
 def setup_distributed():
     """Initialize distributed training if available."""
     if "WORLD_SIZE" in os.environ:
@@ -273,66 +282,82 @@ def main(cfg: DictConfig):
                if is_main_process else train_loader
 
         for batch_idx, (observations, actions) in enumerate(pbar):
-            # Move data to device
-            observations = observations.to(device)  # (B, N+1, C, H, W)
-            actions = actions.to(device)  # (B, N, action_dim)
+            if global_step == _NSYS_START_STEP:
+                torch.cuda.cudart().cudaProfilerStart()
+                if is_main_process:
+                    print(f"\n[nsys] cudaProfilerStart at step {global_step}", flush=True)
+            torch.cuda.nvtx.range_push(f"step_{global_step}")
+
+            with _nvtx_range("h2d_copy"):
+                observations = observations.to(device, non_blocking=True)  # (B, N+1, C, H, W)
+                actions = actions.to(device, non_blocking=True)  # (B, N, action_dim)
 
             B, N_plus_1, C, H, W = observations.shape
             N = N_plus_1 - 1
 
             # Mixed precision forward pass
-            with autocast(dtype=torch.bfloat16):
-                # Encode all observations
-                obs_flat = observations.view(B * N_plus_1, C, H, W)
-                z_flat = model.module.encode(obs_flat) if is_distributed else model.encode(obs_flat)
-                z_sequence = z_flat.view(B, N_plus_1, -1)  # (B, N+1, z_dim)
+            with autocast(dtype=torch.bfloat16), _nvtx_range("forward"):
+                with _nvtx_range("encode"):
+                    obs_flat = observations.view(B * N_plus_1, C, H, W)
+                    z_flat = model.module.encode(obs_flat) if is_distributed else model.encode(obs_flat)
+                    z_sequence = z_flat.view(B, N_plus_1, -1)  # (B, N+1, z_dim)
 
                 # Split into history and targets
                 z_history = z_sequence[:, :-1, :]  # (B, N, z_dim)
                 z_targets = z_sequence[:, 1:, :]   # (B, N, z_dim)
 
-                # Predict next states
-                z_pred = model.module.predict(z_history, actions) if is_distributed \
-                         else model.predict(z_history, actions)  # (B, N, z_dim)
+                with _nvtx_range("predict"):
+                    z_pred = model.module.predict(z_history, actions) if is_distributed \
+                             else model.predict(z_history, actions)  # (B, N, z_dim)
 
-                # Compute loss
-                # Reshape for loss: (N, B, z_dim)
-                Z_history_loss = z_history.transpose(0, 1)
-
-                total_loss, decoder_loss, loss_dict = loss_fn(
-                    z_pred, z_targets, Z_history_loss
-                )
+                with _nvtx_range("loss"):
+                    # Reshape for loss: (N, B, z_dim)
+                    Z_history_loss = z_history.transpose(0, 1)
+                    total_loss, decoder_loss, loss_dict = loss_fn(
+                        z_pred, z_targets, Z_history_loss
+                    )
 
                 # Train decoder separately (if it exists)
                 if hasattr(model, 'decoder') and model.decoder is not None:
-                    # Get CLS token from first observation (detached to prevent encoder gradients)
-                    first_obs = observations[:, 0]  # (B, C, H, W)
-                    with torch.no_grad():
-                        z_first = model.module.encode(first_obs) if is_distributed else model.encode(first_obs)
+                    with _nvtx_range("decoder"):
+                        # Get CLS token from first observation (detached to prevent encoder gradients)
+                        first_obs = observations[:, 0]  # (B, C, H, W)
+                        with torch.no_grad():
+                            z_first = model.module.encode(first_obs) if is_distributed else model.encode(first_obs)
 
-                    # Decode (gradients flow to decoder but not encoder due to detach above)
-                    reconstructed = model.module.decoder(z_first, detach=False) if is_distributed else model.decoder(z_first, detach=False)
+                        # Decode (gradients flow to decoder but not encoder due to detach above)
+                        reconstructed = model.module.decoder(z_first, detach=False) if is_distributed else model.decoder(z_first, detach=False)
 
-                    # Reconstruction loss
-                    decoder_loss = F.mse_loss(reconstructed, first_obs)
+                        # Reconstruction loss
+                        decoder_loss = F.mse_loss(reconstructed, first_obs)
 
-                    # Add to total loss (will train decoder parameters)
-                    total_loss = total_loss + 0.1 * decoder_loss
-                    loss_dict['decoder'] = decoder_loss.item()
+                        # Add to total loss (will train decoder parameters)
+                        total_loss = total_loss + 0.1 * decoder_loss
+                        loss_dict['decoder'] = decoder_loss.item()
 
             # Backward pass with gradient scaling
             optimizer.zero_grad()
-            scaler.scale(total_loss).backward()
+            with _nvtx_range("backward"):
+                scaler.scale(total_loss).backward()
 
-            # Gradient clipping (unscale first)
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(),
-                cfg.training.gradient_clip
-            )
+            with _nvtx_range("optimizer_step"):
+                # Gradient clipping (unscale first)
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    cfg.training.gradient_clip
+                )
 
-            scaler.step(optimizer)
-            scaler.update()
+                scaler.step(optimizer)
+                scaler.update()
+
+            torch.cuda.nvtx.range_pop()  # step_<global_step>
+            if global_step == _NSYS_STOP_STEP:
+                torch.cuda.cudart().cudaProfilerStop()
+                if is_main_process:
+                    print(f"\n[nsys] cudaProfilerStop at step {global_step} — exiting", flush=True)
+                cleanup_distributed(is_distributed)
+                return
 
             # Update metrics
             epoch_loss += total_loss.item()
