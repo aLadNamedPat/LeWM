@@ -128,7 +128,8 @@ def main(cfg: DictConfig):
     # Initialize W&B (only on main process)
     if is_main_process and wandb.run is None:
         wandb.init(
-            project="le-world-model",
+            entity=cfg.entity_name,
+            project=cfg.project_name,
             name=cfg.experiment_name,
             config=OmegaConf.to_container(cfg, resolve=True),
             resume="allow",

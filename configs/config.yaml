@@ -5,6 +5,8 @@ defaults:
   - _self_
 
 experiment_name: lwm_experiment
+project_name: le-world-model
+entity_name: LeWM_Experiments
 checkpoint_dir: checkpoints/${experiment_name}
 log_dir: logs
 

@@ -115,7 +115,9 @@ class LWMConfig(BaseModel):
     loss: LossConfig = Field(default_factory=LossConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     experiment_name: str = Field(default="lwm_experiment", description="Experiment name")
-    checkpoint_dir: str = Field(default="checkpoints", description="Checkpoint directory")
+    entity_name: str = Field(default="LeWM_Experiments", description="Entity name")
+    project_name: str = Field(default="le-world-model", description="Project name")
+    checkpoint_dir: str = Field(default="LeWM_Experiments", description="Checkpoint directory")
     log_dir: str = Field(default="logs", description="Logging directory")
 
     class Config:
