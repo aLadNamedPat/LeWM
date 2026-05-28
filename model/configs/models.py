@@ -1,10 +1,17 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 
 
 class EncoderConfig(BaseModel):
-    """Configuration for ViT Encoder."""
+    """Configuration for the encoder.
 
+    The `type` discriminator selects between the in-house ViT and a pretrained
+    DINOv3 backbone (loaded via timm). DINO-mode ignores the ViT-shape fields.
+    """
+
+    type: Literal["vit", "dino"] = Field(default="vit", description="Encoder backbone")
+
+    # ViT-only fields (unused when type=="dino")
     img_size: int = Field(default=224, description="Input image size")
     patch_size: int = Field(default=14, description="Patch size for ViT")
     in_channels: int = Field(default=3, description="Number of input channels")
@@ -13,7 +20,15 @@ class EncoderConfig(BaseModel):
     n_heads: int = Field(default=3, description="Number of attention heads")
     mlp_ratio: float = Field(default=4.0, description="MLP hidden dim ratio")
     dropout: float = Field(default=0.0, description="Dropout rate")
+
+    # Shared output dim — predictor.z_dim / decoder.cls_dim must match.
     z_dim: int = Field(default=192, description="Observation embedding dimension")
+
+    # DINO-only fields (unused when type=="vit")
+    dino_model_id: str = Field(
+        default="vit_small_patch16_dinov3.lvd1689m",
+        description="timm model id for the DINO backbone",
+    )
 
     class Config:
         frozen = True  # Make config immutable
@@ -83,6 +98,11 @@ class TrainingConfig(BaseModel):
     warmup_steps: int = Field(default=1000, description="Number of warmup steps")
     gradient_clip: float = Field(default=1.0, description="Gradient clipping value")
     seed: int = Field(default=42, description="Random seed")
+    encoder_lr_mult: float = Field(
+        default=0.1,
+        description="Multiplier applied to learning_rate for encoder params. "
+                    "Set to 1.0 to disable separate encoder LR.",
+    )
 
     class Config:
         frozen = True

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
-from .components.encoder import ViTEncoder
+from .components.encoder import DinoEncoder, ViTEncoder
 from .components.predictor import Predictor
 from .components.decoder import ViTDecoder
 from .configs.models import ModelConfig
@@ -23,17 +23,24 @@ class LWM(nn.Module):
         self.config = config
 
         # Initialize encoder
-        self.encoder = ViTEncoder(
-            img_size=config.encoder.img_size,
-            patch_size=config.encoder.patch_size,
-            in_channels=config.encoder.in_channels,
-            embed_dim=config.encoder.embed_dim,
-            n_layers=config.encoder.n_layers,
-            n_heads=config.encoder.n_heads,
-            mlp_ratio=config.encoder.mlp_ratio,
-            dropout=config.encoder.dropout,
-            z_dim=config.encoder.z_dim,
-        )
+        if config.encoder.type == "dino":
+            self.encoder = DinoEncoder(
+                model_id=config.encoder.dino_model_id,
+                img_size=config.encoder.img_size,
+                z_dim=config.encoder.z_dim,
+            )
+        else:
+            self.encoder = ViTEncoder(
+                img_size=config.encoder.img_size,
+                patch_size=config.encoder.patch_size,
+                in_channels=config.encoder.in_channels,
+                embed_dim=config.encoder.embed_dim,
+                n_layers=config.encoder.n_layers,
+                n_heads=config.encoder.n_heads,
+                mlp_ratio=config.encoder.mlp_ratio,
+                dropout=config.encoder.dropout,
+                z_dim=config.encoder.z_dim,
+            )
 
         # Initialize predictor (forward dynamics model)
         self.predictor = Predictor(

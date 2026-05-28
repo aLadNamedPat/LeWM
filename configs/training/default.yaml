@@ -6,3 +6,4 @@ gradient_clip: 1.0
 seed: 42
 max_episodes: null  # Set to e.g. 100 for faster dev iteration, null for full dataset
 use_compile: false  # torch.compile() for speed (requires extra VRAM during compilation)
+encoder_lr_mult: 0.1  # encoder params get learning_rate * this; set to 1.0 to disable

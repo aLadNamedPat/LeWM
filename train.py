@@ -143,6 +143,13 @@ def main(cfg: DictConfig):
     model = LWM.from_hydra_config(cfg)
     model = model.to(device)
 
+    # Capture encoder vs. non-encoder params *before* compile/DDP wrapping —
+    # both preserve the underlying nn.Parameter identities, so these refs
+    # stay valid for the optimizer below.
+    encoder_params = list(model.encoder.parameters())
+    encoder_param_ids = {id(p) for p in encoder_params}
+    other_params = [p for p in model.parameters() if id(p) not in encoder_param_ids]
+
     # Compile model for faster training (RTX 4090 optimization)
     if cfg.training.use_compile:
         if is_main_process:
@@ -163,10 +170,22 @@ def main(cfg: DictConfig):
     )
     loss_fn = loss_fn.to(device)  # Move loss function to same device as model
 
-    # Create optimizer
+    # Create optimizer — encoder gets a separate (typically lower) LR so a
+    # pretrained backbone isn't clobbered by gradients sized for a freshly
+    # initialized predictor head.
+    encoder_lr_mult = cfg.training.encoder_lr_mult
+    base_lr = cfg.training.learning_rate
+    encoder_lr = base_lr * encoder_lr_mult
+    if is_main_process:
+        print(
+            f"Optimizer: encoder_lr={encoder_lr:g} "
+            f"(mult={encoder_lr_mult}), other_lr={base_lr:g}"
+        )
     optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=cfg.training.learning_rate,
+        [
+            {"params": encoder_params, "lr": encoder_lr},
+            {"params": other_params, "lr": base_lr},
+        ],
         betas=(0.9, 0.999),
         weight_decay=0.01,
     )

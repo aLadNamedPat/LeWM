@@ -5,7 +5,7 @@ defaults:
   - _self_
 
 experiment_name: lwm_experiment
-checkpoint_dir: checkpoints
+checkpoint_dir: checkpoints/${experiment_name}
 log_dir: logs
 
 hydra:
