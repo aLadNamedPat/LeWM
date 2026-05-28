@@ -1,4 +1,7 @@
 encoder:
+  encoder_type: vit  # 'vit' (train from scratch) or 'dino' (pre-trained DINOv2)
+
+  # ViT parameters (used when encoder_type='vit')
   img_size: 224
   patch_size: 14
   in_channels: 3
@@ -7,6 +10,12 @@ encoder:
   n_heads: 3
   mlp_ratio: 4.0
   dropout: 0.0
+
+  # DINOv2 parameters (used when encoder_type='dino')
+  dino_model: dinov2_vits14  # vits14 (384d), vitb14 (768d), vitl14 (1024d), vitg14 (1536d)
+  freeze_backbone: false  # false = fine-tune DINOv2, true = freeze (original DinoWM)
+
+  # Common parameter
   z_dim: 192
 
 predictor:

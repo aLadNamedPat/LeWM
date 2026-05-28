@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from .components.encoder import ViTEncoder
+from .components.dino_encoder import DinoEncoder
 from .components.predictor import Predictor
 from .components.decoder import ViTDecoder
 from .configs.models import ModelConfig
@@ -22,18 +23,25 @@ class LWM(nn.Module):
         super().__init__()
         self.config = config
 
-        # Initialize encoder
-        self.encoder = ViTEncoder(
-            img_size=config.encoder.img_size,
-            patch_size=config.encoder.patch_size,
-            in_channels=config.encoder.in_channels,
-            embed_dim=config.encoder.embed_dim,
-            n_layers=config.encoder.n_layers,
-            n_heads=config.encoder.n_heads,
-            mlp_ratio=config.encoder.mlp_ratio,
-            dropout=config.encoder.dropout,
-            z_dim=config.encoder.z_dim,
-        )
+        # Initialize encoder (ViT or DINOv2)
+        if config.encoder.encoder_type == "dino":
+            self.encoder = DinoEncoder(
+                model_name=config.encoder.dino_model,
+                z_dim=config.encoder.z_dim,
+                freeze_backbone=config.encoder.freeze_backbone,
+            )
+        else:  # vit
+            self.encoder = ViTEncoder(
+                img_size=config.encoder.img_size,
+                patch_size=config.encoder.patch_size,
+                in_channels=config.encoder.in_channels,
+                embed_dim=config.encoder.embed_dim,
+                n_layers=config.encoder.n_layers,
+                n_heads=config.encoder.n_heads,
+                mlp_ratio=config.encoder.mlp_ratio,
+                dropout=config.encoder.dropout,
+                z_dim=config.encoder.z_dim,
+            )
 
         # Initialize predictor (forward dynamics model)
         self.predictor = Predictor(

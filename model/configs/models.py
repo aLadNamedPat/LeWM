@@ -1,10 +1,16 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 
 
 class EncoderConfig(BaseModel):
-    """Configuration for ViT Encoder."""
+    """Configuration for Encoder (ViT or DINOv2)."""
 
+    encoder_type: Literal["vit", "dino"] = Field(
+        default="vit",
+        description="Encoder type: 'vit' (train from scratch) or 'dino' (pre-trained DINOv2)"
+    )
+
+    # ViT-specific parameters (ignored if encoder_type='dino')
     img_size: int = Field(default=224, description="Input image size")
     patch_size: int = Field(default=14, description="Patch size for ViT")
     in_channels: int = Field(default=3, description="Number of input channels")
@@ -13,6 +19,18 @@ class EncoderConfig(BaseModel):
     n_heads: int = Field(default=3, description="Number of attention heads")
     mlp_ratio: float = Field(default=4.0, description="MLP hidden dim ratio")
     dropout: float = Field(default=0.0, description="Dropout rate")
+
+    # DINOv2-specific parameters (ignored if encoder_type='vit')
+    dino_model: Literal["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14", "dinov2_vitg14"] = Field(
+        default="dinov2_vits14",
+        description="DINOv2 model variant (s=small/384d, b=base/768d, l=large/1024d, g=giant/1536d)"
+    )
+    freeze_backbone: bool = Field(
+        default=False,
+        description="Freeze DINOv2 weights (True=original DinoWM, False=fine-tune)"
+    )
+
+    # Common parameter
     z_dim: int = Field(default=192, description="Observation embedding dimension")
 
     class Config:
