@@ -41,7 +41,7 @@ if ls *.tar.zst 1> /dev/null 2>&1; then
     # Extract
     for file in *.tar.zst; do
         echo "Extracting $file..."
-        tar -I zstd -xvf "$file"
+        tar -I zstd  --no-same-owner -xvf "$file"
     done
 fi
 
