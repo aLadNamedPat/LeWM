@@ -220,7 +220,7 @@ def main(cfg: DictConfig):
             h5_path=h5_path,
             batch_size=cfg.training.batch_size,
             sequence_length=5,  # N frames
-            num_workers=0,  # HDF5 doesn't support multi-process loading
+            num_workers=cfg.training.num_workers, 
             shuffle=True,
             max_episodes=cfg.training.max_episodes,
         )
@@ -281,7 +281,14 @@ def main(cfg: DictConfig):
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{cfg.training.num_epochs}") \
                if is_main_process else train_loader
 
-        for batch_idx, (observations, actions) in enumerate(pbar):
+        data_iter = iter(pbar)
+        while True:
+            with _nvtx_range("dataloader"):
+                try:
+                    observations, actions = next(data_iter)
+                except StopIteration:
+                    break
+
             if global_step == _NSYS_START_STEP:
                 torch.cuda.cudart().cudaProfilerStart()
                 if is_main_process:
@@ -359,12 +366,14 @@ def main(cfg: DictConfig):
                 cleanup_distributed(is_distributed)
                 return
 
-            # Update metrics
-            epoch_loss += total_loss.item()
+            # Update metrics (.item() forces a CUDA sync every step)
+            with _nvtx_range("metrics"):
+                epoch_loss += total_loss.item()
             global_step += 1
 
             # Log to W&B (main process only)
             if is_main_process and global_step % 10 == 0:
+                torch.cuda.nvtx.range_push("logging")
                 log_dict = {
                     "train/loss": total_loss.item(),
                     "train/loss_prediction": loss_dict['prediction'],
@@ -388,9 +397,11 @@ def main(cfg: DictConfig):
                     'pred': f"{loss_dict['prediction']:.4f}",
                     'sigreg': f"{loss_dict['sigreg']:.4f}",
                 })
+                torch.cuda.nvtx.range_pop()  # logging
 
             # Save checkpoint periodically
             if is_main_process and global_step % 1000 == 0:
+                torch.cuda.nvtx.range_push("checkpoint")
                 save_checkpoint(
                     model.module if is_distributed else model,
                     optimizer,
@@ -401,6 +412,7 @@ def main(cfg: DictConfig):
                     is_distributed,
                     scaler=scaler
                 )
+                torch.cuda.nvtx.range_pop()  # checkpoint
 
         # End of epoch
         scheduler.step()

@@ -1,5 +1,10 @@
 """Dataset loader for Le World Model Two Rooms dataset."""
 
+import os
+
+# Allow multiple processs to read the H5s, okay because we are just loading data
+os.environ.setdefault("HDF5_USE_FILE_LOCKING", "FALSE")
+
 import h5py
 import hdf5plugin  # Required for compressed HDF5 datasets
 import torch
@@ -32,6 +37,10 @@ class TwoRoomsDataset(Dataset):
         self.h5_path = h5_path
         self.sequence_length = sequence_length
         self.transform = transform
+
+        # Per-process file handle, opened lazily on first access so it is never
+        # shared across a DataLoader-worker fork (which corrupts HDF5 reads).
+        self._h5 = None
 
         # Open HDF5 file and load metadata
         with h5py.File(h5_path, 'r') as f:
@@ -89,6 +98,23 @@ class TwoRoomsDataset(Dataset):
     def __len__(self):
         return len(self.index)
 
+    def _file(self):
+        """Return this process's HDF5 handle, opening it once on first use.
+
+        Opening per worker (instead of per __getitem__) avoids a file open/close
+        syscall on every sample, and keeping it lazy keeps the dataset picklable
+        so it can be sent to DataLoader workers.
+        """
+        if self._h5 is None:
+            self._h5 = h5py.File(self.h5_path, 'r')
+        return self._h5
+
+    def __getstate__(self):
+        # Don't try to pickle an open h5py handle when shipping to workers.
+        state = self.__dict__.copy()
+        state['_h5'] = None
+        return state
+
     def __getitem__(self, idx):
         """
         Returns:
@@ -97,34 +123,34 @@ class TwoRoomsDataset(Dataset):
         """
         ep_idx, start_idx = self.index[idx]
 
-        with h5py.File(self.h5_path, 'r') as f:
-            if self.use_flat_structure:
-                # Two Rooms or flat structure
-                if 'pixels' in f:
-                    # Two Rooms dataset - use episode offsets
-                    ep_offset = self.episode_offsets[ep_idx]
-                    global_start = ep_offset + start_idx
-                    global_end = global_start + self.sequence_length + 1
+        f = self._file()
+        if self.use_flat_structure:
+            # Two Rooms or flat structure
+            if 'pixels' in f:
+                # Two Rooms dataset - use episode offsets
+                ep_offset = self.episode_offsets[ep_idx]
+                global_start = ep_offset + start_idx
+                global_end = global_start + self.sequence_length + 1
 
-                    observations = f['pixels'][global_start:global_end]
-                    actions = f['action'][global_start:global_start + self.sequence_length]
-                else:
-                    # Standard flat structure
-                    obs_data = f['observations']
-                    action_data = f['actions']
-                    end_idx = start_idx + self.sequence_length + 1
-                    observations = obs_data[start_idx:end_idx]
-                    actions = action_data[start_idx:start_idx + self.sequence_length]
+                observations = f['pixels'][global_start:global_end]
+                actions = f['action'][global_start:global_start + self.sequence_length]
             else:
-                # Episode structure
-                ep_key = self.episode_keys[ep_idx]
-                obs_data = f[ep_key]['observations']
-                action_data = f[ep_key]['actions']
-
-                # Load sequence of observations (N+1 frames)
+                # Standard flat structure
+                obs_data = f['observations']
+                action_data = f['actions']
                 end_idx = start_idx + self.sequence_length + 1
                 observations = obs_data[start_idx:end_idx]
                 actions = action_data[start_idx:start_idx + self.sequence_length]
+        else:
+            # Episode structure
+            ep_key = self.episode_keys[ep_idx]
+            obs_data = f[ep_key]['observations']
+            action_data = f[ep_key]['actions']
+
+            # Load sequence of observations (N+1 frames)
+            end_idx = start_idx + self.sequence_length + 1
+            observations = obs_data[start_idx:end_idx]
+            actions = action_data[start_idx:start_idx + self.sequence_length]
 
         # Convert to torch tensors
         observations = torch.from_numpy(np.array(observations)).float()
@@ -150,9 +176,11 @@ def create_dataloader(
     h5_path: str,
     batch_size: int = 32,
     sequence_length: int = 5,
-    num_workers: int = 4,
+    num_workers: int = 8,
     shuffle: bool = True,
     max_episodes: int = None,
+    prefetch_factor: int = 4,
+    drop_last: bool = True,
 ):
     """
     Create a dataloader for the Two Rooms dataset.
@@ -180,6 +208,8 @@ def create_dataloader(
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
+        persistent_workers=num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
     )
 
     return dataloader

@@ -43,7 +43,7 @@ fi
 
 # Install dependencies with UV (super fast!)
 echo "📦 Installing dependencies with UV..."
-uv pip install --system -e .
+uv pip install --system --break-system-packages -e .
 
 # Login to wandb if API key is provided
 if [ ! -z "$WANDB_API_KEY" ]; then
